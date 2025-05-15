@@ -1,0 +1,59 @@
+---
+- name: Configure REMnux VM
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Enable systemd-networkd
+      systemd:
+        name: systemd-networkd
+        enabled: true
+        state: started
+
+    - name: Enable systemd-resolved
+      systemd:
+        name: systemd-resolved
+        enabled: true
+        state: started
+
+    - name: Configure network for ens33
+      copy:
+        dest: /etc/systemd/network/20-wired.network
+        content: |
+          [Match]
+          Name=ens33
+          [Network]
+          DHCP=yes
+
+    - name: Restart networkd
+      systemd:
+        name: systemd-networkd
+        state: restarted
+
+    - name: Set Swedish keyboard layout
+      command: localectl set-keymap se
+
+    - name: Run remnux upgrade
+      command: remnux upgrade
+      args:
+        creates: /usr/local/bin/remnux  # skip om redan installerat, anpassa vid behov
+
+    - name: Find extra interface (ens36 eller liknande)
+      shell: "ip -o link show | awk -F': ' '{print $2}' | grep -E '^ens[0-9]+$' | grep -v ens33 | head -n 1"
+      register: extra_if
+      changed_when: false
+
+    - name: Configure second network interface
+      when: extra_if.stdout != ""
+      copy:
+        dest: /etc/systemd/network/21-wired.network
+        content: |
+          [Match]
+          Name={{ extra_if.stdout }}
+          [Network]
+          DHCP=yes
+
+    - name: Restart networkd again
+      systemd:
+        name: systemd-networkd
+        state: restarted
